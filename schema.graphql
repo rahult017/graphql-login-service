@@ -1,0 +1,427 @@
+"""
+GraphQL Schema for Context-Aware Login Service
+Supports both D2C and B2B authentication flows with implicit context inference
+"""
+schema {
+  query: Query
+  mutation: Mutation
+}
+
+# ============================================================================
+# INPUT TYPES
+# ============================================================================
+
+"""
+Login input supporting both D2C and B2B authentication.
+Context is inferred from identifier (email) domain mapping.
+"""
+input LoginInput {
+  """
+  User identifier - typically email address.
+  Domain is used for organization context inference.
+  """
+  identifier: String!
+  
+  """
+  Authentication secret - password, SSO token, or temporary code.
+  Interpretation varies based on inferred context and organization policies.
+  """
+  secret: String!
+  
+  """
+  Optional metadata for context enrichment and security validation.
+  Used for: IP tracking, device fingerprinting, timezone inference,
+  user agent analysis, MFA session tracking.
+  """
+  metadata: LoginMetadataInput
+}
+
+"""
+Metadata for enhanced security validation and context inference.
+All fields optional to support progressive enhancement.
+"""
+input LoginMetadataInput {
+  """Client IP address for geo-restriction and anomaly detection"""
+  ipAddress: String
+  
+  """Device fingerprint for trusted device tracking"""
+  deviceFingerprint: String
+  
+  """User agent string for device type inference"""
+  userAgent: String
+  
+  """Client timezone for anomaly detection"""
+  timezone: String
+  
+  """MFA session token for step-up authentication"""
+  mfaSessionToken: String
+  
+  """Preferred organization ID for multi-org disambiguation"""
+  preferredOrgId: String
+  
+  """Remember device flag for MFA optimization"""
+  rememberDevice: Boolean
+}
+
+# ============================================================================
+# RESPONSE INTERFACE & IMPLEMENTATIONS
+# ============================================================================
+
+"""
+Common interface for all login responses.
+Ensures consistent error handling and correlation tracking.
+"""
+interface LoginResponse {
+  """Unique correlation ID for request tracing and support"""
+  correlationId: ID!
+  
+  """ISO 8601 timestamp of the response"""
+  timestamp: String!
+  
+  """Success indicator - true only for LoginSuccess"""
+  success: Boolean!
+}
+
+"""
+Successful authentication - returns session token and user context.
+"""
+type LoginSuccess implements LoginResponse {
+  correlationId: ID!
+  timestamp: String!
+  success: Boolean!
+  
+  """Opaque session token - JWT or session ID"""
+  sessionToken: String!
+  
+  """Token expiration in seconds"""
+  expiresIn: Int!
+  
+  """User profile information"""
+  user: UserProfile!
+  
+  """Active organization context (null for D2C users)"""
+  organization: OrganizationContext
+  
+  """Refresh token for session extension"""
+  refreshToken: String
+}
+
+"""
+Authentication challenge requiring additional user action.
+Used for MFA, SSO redirects, organization selection, etc.
+"""
+type LoginChallenge implements LoginResponse {
+  correlationId: ID!
+  timestamp: String!
+  success: Boolean!
+  
+  """Type of challenge required"""
+  challengeType: ChallengeType!
+  
+  """Challenge-specific payload"""
+  challengeData: ChallengeData!
+  
+  """Challenge session token for subsequent verification"""
+  challengeToken: String!
+  
+  """Challenge expiration in seconds"""
+  expiresIn: Int!
+}
+
+"""
+Authentication failure with deterministic error messages.
+Does not leak user or organization existence.
+"""
+type LoginFailure implements LoginResponse {
+  correlationId: ID!
+  timestamp: String!
+  success: Boolean!
+  
+  """Generic error code - never reveals existence"""
+  errorCode: ErrorCode!
+  
+  """User-safe error message"""
+  message: String!
+  
+  """Retry allowed indicator"""
+  retryAllowed: Boolean!
+  
+  """Retry delay in seconds (for rate limiting)"""
+  retryAfter: Int
+}
+
+# ============================================================================
+# SUPPORTING TYPES
+# ============================================================================
+
+"""
+User profile information returned on successful authentication.
+Minimal data exposure following principle of least privilege.
+"""
+type UserProfile {
+  """User unique identifier"""
+  id: ID!
+  
+  """User email (verified)"""
+  email: String!
+  
+  """Display name"""
+  name: String
+  
+  """Account type inferred from context"""
+  accountType: AccountType!
+  
+  """Whether MFA is enrolled for this user"""
+  mfaEnrolled: Boolean!
+  
+  """Last successful login timestamp"""
+  lastLoginAt: String
+}
+
+"""
+Organization context for B2B users.
+"""
+type OrganizationContext {
+  """Organization unique identifier"""
+  id: ID!
+  
+  """Organization name"""
+  name: String!
+  
+  """User's role within the organization"""
+  role: String
+  
+  """Organization-specific permissions"""
+  permissions: [String!]!
+  
+  """Organization settings affecting user experience"""
+  settings: OrganizationSettings
+}
+
+"""
+Organization-specific settings.
+"""
+type OrganizationSettings {
+  """Whether SSO is enforced"""
+  ssoEnforced: Boolean!
+  
+  """Whether MFA is required"""
+  mfaRequired: Boolean!
+  
+  """Allowed IP ranges (CIDR notation)"""
+  ipWhitelist: [String!]
+  
+  """Session timeout in seconds"""
+  sessionTimeout: Int!
+}
+
+"""
+Challenge-specific data payload.
+Union type supporting multiple challenge scenarios.
+"""
+union ChallengeData = 
+  MfaChallenge | 
+  SsoChallenge | 
+  OrgSelectionChallenge | 
+  PasswordResetChallenge
+
+"""
+MFA challenge requiring code entry.
+"""
+type MfaChallenge {
+  """MFA method required (SMS, TOTP, etc.)"""
+  method: MfaMethod!
+  
+  """Masked delivery target (e.g., "***-***-1234")"""
+  deliveryTarget: String
+  
+  """Whether backup codes are available"""
+  backupCodesAvailable: Boolean!
+}
+
+"""
+SSO redirect challenge.
+"""
+type SsoChallenge {
+  """SSO provider identifier"""
+  provider: String!
+  
+  """Redirect URL for SSO flow"""
+  redirectUrl: String!
+  
+  """PKCE challenge for OAuth flows"""
+  pkceChallenge: String
+}
+
+"""
+Organization selection challenge for multi-org users.
+"""
+type OrgSelectionChallenge {
+  """Available organizations for this user"""
+  organizations: [OrgOption!]!
+  
+  """Whether password was already validated"""
+  passwordValidated: Boolean!
+}
+
+"""
+Organization option for selection.
+"""
+type OrgOption {
+  """Organization ID"""
+  id: ID!
+  
+  """Organization name"""
+  name: String!
+  
+  """Organization logo URL"""
+  logoUrl: String
+  
+  """Whether SSO is required for this org"""
+  requiresSso: Boolean!
+}
+
+"""
+Password reset challenge.
+"""
+type PasswordResetChallenge {
+  """Reason for mandatory reset"""
+  reason: String!
+  
+  """Reset token for password update"""
+  resetToken: String!
+}
+
+# ============================================================================
+# ENUMS
+# ============================================================================
+
+enum ChallengeType {
+  """Multi-factor authentication required"""
+  MFA_REQUIRED
+  
+  """SSO redirect required"""
+  SSO_REDIRECT
+  
+  """User must select organization"""
+  ORG_SELECTION
+  
+  """Password reset required"""
+  PASSWORD_RESET
+  
+  """Email verification required"""
+  EMAIL_VERIFICATION
+  
+  """Terms of service acceptance required"""
+  TOS_ACCEPTANCE
+}
+
+enum MfaMethod {
+  """Time-based one-time password (authenticator app)"""
+  TOTP
+  
+  """SMS-based code"""
+  SMS
+  
+  """Email-based code"""
+  EMAIL
+  
+  """Push notification"""
+  PUSH
+  
+  """Hardware security key"""
+  SECURITY_KEY
+  
+  """Backup recovery codes"""
+  BACKUP_CODE
+}
+
+enum ErrorCode {
+  """Generic authentication failure (does not leak existence)"""
+  AUTHENTICATION_FAILED
+  
+  """Invalid input format"""
+  INVALID_INPUT
+  
+  """Rate limit exceeded"""
+  RATE_LIMIT_EXCEEDED
+  
+  """Service temporarily unavailable"""
+  SERVICE_UNAVAILABLE
+  
+  """Account locked due to security policy"""
+  ACCOUNT_LOCKED
+  
+  """Session expired or invalid"""
+  SESSION_EXPIRED
+  
+  """Challenge verification failed"""
+  CHALLENGE_FAILED
+  
+  """IP address not whitelisted"""
+  IP_RESTRICTED
+}
+
+enum AccountType {
+  """Direct-to-consumer user"""
+  D2C
+  
+  """Business-to-business user"""
+  B2B
+}
+
+# ============================================================================
+# MUTATIONS
+# ============================================================================
+
+type Mutation {
+  """
+  Unified login mutation supporting both D2C and B2B flows.
+  Context is inferred from identifier domain mapping.
+  
+  Returns polymorphic response based on authentication state:
+  - LoginSuccess: Authentication complete
+  - LoginChallenge: Additional action required (MFA, SSO, etc.)
+  - LoginFailure: Authentication failed
+  
+  Security considerations:
+  - Constant-time comparison for timing attack prevention
+  - Deterministic errors to prevent user enumeration
+  - Rate limiting per IP and identifier
+  - Correlation ID for audit trail
+  """
+  login(input: LoginInput!): LoginResponse!
+  
+  """
+  Verify challenge response (MFA code, organization selection, etc.)
+  """
+  verifyChallenge(
+    challengeToken: String!
+    challengeResponse: String!
+    metadata: LoginMetadataInput
+  ): LoginResponse!
+  
+  """
+  Refresh session using refresh token
+  """
+  refreshSession(refreshToken: String!): LoginResponse!
+}
+
+# ============================================================================
+# QUERIES (for completeness)
+# ============================================================================
+
+type Query {
+  """
+  Check service health
+  """
+  health: HealthStatus!
+}
+
+"""
+Simple health check response
+"""
+type HealthStatus {
+  status: String!
+  timestamp: String!
+}

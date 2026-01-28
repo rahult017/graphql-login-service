@@ -1,0 +1,369 @@
+
+# ============================================================================
+# EXAMPLE 1: D2C User Login (Simple Success)
+# ============================================================================
+
+mutation D2C_Login {
+  login(input: {
+    identifier: "alice@gmail.com"
+    secret: "SecurePass123!"
+    metadata: {
+      ipAddress: "203.0.113.1"
+      deviceFingerprint: "alice_laptop_chrome"
+      userAgent: "Mozilla/5.0..."
+    }
+  }) {
+    ... on LoginSuccess {
+      __typename
+      correlationId
+      timestamp
+      success
+      sessionToken
+      expiresIn
+      user {
+        id
+        email
+        name
+        accountType
+        mfaEnrolled
+      }
+      organization {
+        id
+        name
+      }
+    }
+    ... on LoginFailure {
+      __typename
+      correlationId
+      errorCode
+      message
+      retryAllowed
+    }
+  }
+}
+
+# Expected Response:
+# {
+#   "data": {
+#     "login": {
+#       "__typename": "LoginSuccess",
+#       "success": true,
+#       "sessionToken": "eyJhbGc...",
+#       "user": {
+#         "email": "alice@gmail.com",
+#         "accountType": "D2C"
+#       },
+#       "organization": null
+#     }
+#   }
+# }
+
+
+# ============================================================================
+# EXAMPLE 2: B2B Single-Org Login (Success)
+# ============================================================================
+
+mutation B2B_SingleOrg_Login {
+  login(input: {
+    identifier: "bob@acme.com"
+    secret: "AcmePass456!"
+  }) {
+    ... on LoginSuccess {
+      __typename
+      sessionToken
+      user {
+        email
+        accountType
+      }
+      organization {
+        name
+        role
+        permissions
+      }
+    }
+  }
+}
+
+# Expected Response:
+# {
+#   "data": {
+#     "login": {
+#       "__typename": "LoginSuccess",
+#       "user": { "accountType": "B2B" },
+#       "organization": {
+#         "name": "Acme Corporation",
+#         "role": "engineer",
+#         "permissions": ["read", "write"]
+#       }
+#     }
+#   }
+# }
+
+
+# ============================================================================
+# EXAMPLE 3: Multi-Org Login (Organization Selection Challenge)
+# ============================================================================
+
+mutation MultiOrg_Login_Step1 {
+  login(input: {
+    identifier: "carol@consulting.com"
+    secret: "ConsultPass789!"
+  }) {
+    ... on LoginChallenge {
+      __typename
+      challengeType
+      challengeToken
+      challengeData {
+        ... on OrgSelectionChallenge {
+          organizations {
+            id
+            name
+            requiresSso
+          }
+          passwordValidated
+        }
+      }
+    }
+  }
+}
+
+# Expected Response:
+# {
+#   "data": {
+#     "login": {
+#       "__typename": "LoginChallenge",
+#       "challengeType": "ORG_SELECTION",
+#       "challengeToken": "cha_abc123...",
+#       "challengeData": {
+#         "organizations": [
+#           {"id": "org_client_a", "name": "Client A Inc"},
+#           {"id": "org_client_b", "name": "Client B Corp"}
+#         ],
+#         "passwordValidated": true
+#       }
+#     }
+#   }
+# }
+
+# Step 2: User selects organization
+mutation MultiOrg_Login_Step2 {
+  verifyChallenge(
+    challengeToken: "cha_abc123..."
+    challengeResponse: "org_client_a"
+  ) {
+    ... on LoginSuccess {
+      sessionToken
+      organization { name }
+    }
+  }
+}
+
+
+# ============================================================================
+# EXAMPLE 4: SSO-Enforced Organization (SSO Redirect Challenge)
+# ============================================================================
+
+mutation SSO_Login {
+  login(input: {
+    identifier: "david@techcorp.com"
+    secret: "anything"  # Ignored - SSO enforced
+  }) {
+    ... on LoginChallenge {
+      __typename
+      challengeType
+      challengeData {
+        ... on SsoChallenge {
+          provider
+          redirectUrl
+        }
+      }
+    }
+  }
+}
+
+# Expected Response:
+# {
+#   "data": {
+#     "login": {
+#       "__typename": "LoginChallenge",
+#       "challengeType": "SSO_REDIRECT",
+#       "challengeData": {
+#         "provider": "GOOGLE",
+#         "redirectUrl": "https://accounts.google.com/o/oauth2/..."
+#       }
+#     }
+#   }
+# }
+
+
+# ============================================================================
+# EXAMPLE 5: MFA Required (MFA Challenge)
+# ============================================================================
+
+mutation MFA_Login_Step1 {
+  login(input: {
+    identifier: "carol@consulting.com"
+    secret: "ConsultPass789!"
+    metadata: {
+      preferredOrgId: "org_client_b"  # This org requires MFA
+    }
+  }) {
+    ... on LoginChallenge {
+      __typename
+      challengeType
+      challengeToken
+      challengeData {
+        ... on MfaChallenge {
+          method
+          deliveryTarget
+          backupCodesAvailable
+        }
+      }
+    }
+  }
+}
+
+# Expected Response:
+# {
+#   "data": {
+#     "login": {
+#       "__typename": "LoginChallenge",
+#       "challengeType": "MFA_REQUIRED",
+#       "challengeToken": "cha_mfa_xyz...",
+#       "challengeData": {
+#         "method": "TOTP",
+#         "deliveryTarget": null,
+#         "backupCodesAvailable": true
+#       }
+#     }
+#   }
+# }
+
+# Step 2: User enters TOTP code
+mutation MFA_Login_Step2 {
+  verifyChallenge(
+    challengeToken: "cha_mfa_xyz..."
+    challengeResponse: "123456"
+  ) {
+    ... on LoginSuccess {
+      sessionToken
+    }
+    ... on LoginFailure {
+      errorCode
+      message
+    }
+  }
+}
+
+
+# ============================================================================
+# EXAMPLE 6: Authentication Failure (Wrong Password)
+# ============================================================================
+
+mutation Failed_Login {
+  login(input: {
+    identifier: "bob@acme.com"
+    secret: "WrongPassword!"
+  }) {
+    ... on LoginFailure {
+      __typename
+      correlationId
+      errorCode
+      message
+      retryAllowed
+      retryAfter
+    }
+  }
+}
+
+# Expected Response:
+# {
+#   "data": {
+#     "login": {
+#       "__typename": "LoginFailure",
+#       "errorCode": "AUTHENTICATION_FAILED",
+#       "message": "Invalid credentials. Please check your email and password.",
+#       "retryAllowed": true,
+#       "retryAfter": null
+#     }
+#   }
+# }
+
+
+# ============================================================================
+# EXAMPLE 7: Rate Limit Exceeded
+# ============================================================================
+
+# After 10 failed attempts...
+
+mutation RateLimited_Login {
+  login(input: {
+    identifier: "bob@acme.com"
+    secret: "WrongPassword!"
+  }) {
+    ... on LoginFailure {
+      errorCode
+      message
+      retryAfter
+    }
+  }
+}
+
+# Expected Response:
+# {
+#   "data": {
+#     "login": {
+#       "errorCode": "RATE_LIMIT_EXCEEDED",
+#       "message": "Too many login attempts. Please try again later.",
+#       "retryAfter": 900  # 15 minutes in seconds
+#     }
+#   }
+# }
+
+
+# ============================================================================
+# EXAMPLE 8: IP Restricted
+# ============================================================================
+
+mutation IPRestricted_Login {
+  login(input: {
+    identifier: "eve@finance.com"
+    secret: "FinancePass999!"
+    metadata: {
+      ipAddress: "203.0.113.100"  # Not in whitelist
+    }
+  }) {
+    ... on LoginFailure {
+      errorCode
+      message
+    }
+  }
+}
+
+# Expected Response:
+# {
+#   "data": {
+#     "login": {
+#       "errorCode": "IP_RESTRICTED",
+#       "message": "Access not permitted from this location."
+#     }
+#   }
+# }
+
+
+# ============================================================================
+# EXAMPLE 9: Refresh Session
+# ============================================================================
+
+mutation RefreshSession {
+  refreshSession(refreshToken: "ref_abc123...") {
+    ... on LoginSuccess {
+      sessionToken
+      expiresIn
+    }
+    ... on LoginFailure {
+      errorCode
+    }
+  }
+}
+

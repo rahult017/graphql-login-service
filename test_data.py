@@ -21,9 +21,6 @@ async def initialize_test_data(container):
     
     password_service = PasswordService()
     
-    # ========================================================================
-    # SCENARIO 1: D2C USER
-    # ========================================================================
     d2c_user = User(
         id="user_d2c_001",
         email=EmailAddress("alice@gmail.com"),
@@ -42,9 +39,6 @@ async def initialize_test_data(container):
     )
     await container.user_repo.create(d2c_user)
     
-    # ========================================================================
-    # SCENARIO 2: B2B SINGLE-ORG USER (ACME CORP)
-    # ========================================================================
     acme_corp = Organization(
         id="org_acme_001",
         name="Acme Corporation",
@@ -90,9 +84,6 @@ async def initialize_test_data(container):
     )
     await container.membership_repo.create(bob_membership)
     
-    # ========================================================================
-    # SCENARIO 3: B2B MULTI-ORG USER (CONSULTING FIRM)
-    # ========================================================================
     client_a = Organization(
         id="org_client_a",
         name="Client A Inc",
@@ -176,10 +167,7 @@ async def initialize_test_data(container):
         created_at=datetime.utcnow()
     )
     await container.mfa_device_repo.create(totp_device)
-    
-    # ========================================================================
-    # SCENARIO 4: SSO-ENFORCED ORG
-    # ========================================================================
+
     tech_corp = Organization(
         id="org_techcorp_001",
         name="TechCorp",
@@ -226,10 +214,6 @@ async def initialize_test_data(container):
         is_active=True,
         joined_at=datetime.utcnow()
     ))
-    
-    # ========================================================================
-    # SCENARIO 5: MFA-REQUIRED ORG (NO MFA ENROLLED - EDGE CASE #4)
-    # ========================================================================
     finance_co = Organization(
         id="org_finance_001",
         name="FinanceCo",
@@ -274,9 +258,6 @@ async def initialize_test_data(container):
         joined_at=datetime.utcnow()
     ))
     
-    # ========================================================================
-    # SCENARIO 6: HYBRID ORG (BOTH SSO AND PASSWORD ALLOWED)
-    # ========================================================================
     hybrid_inc = Organization(
         id="org_hybrid_001",
         name="Hybrid Inc",
@@ -334,14 +315,8 @@ async def initialize_test_data(container):
     print("6. Hybrid: frank@hybrid.com / HybridPass111!")
 
 
-# ============================================================================
-# EXAMPLE GRAPHQL QUERIES
-# ============================================================================
 
 EXAMPLE_QUERIES = """
-# ============================================================================
-# EXAMPLE 1: D2C User Login (Simple Success)
-# ============================================================================
 
 mutation D2C_Login {
   login(input: {
@@ -440,10 +415,6 @@ mutation B2B_SingleOrg_Login {
 # }
 
 
-# ============================================================================
-# EXAMPLE 3: Multi-Org Login (Organization Selection Challenge)
-# ============================================================================
-
 mutation MultiOrg_Login_Step1 {
   login(input: {
     identifier: "carol@consulting.com"
@@ -499,10 +470,6 @@ mutation MultiOrg_Login_Step2 {
 }
 
 
-# ============================================================================
-# EXAMPLE 4: SSO-Enforced Organization (SSO Redirect Challenge)
-# ============================================================================
-
 mutation SSO_Login {
   login(input: {
     identifier: "david@techcorp.com"
@@ -534,11 +501,6 @@ mutation SSO_Login {
 #     }
 #   }
 # }
-
-
-# ============================================================================
-# EXAMPLE 5: MFA Required (MFA Challenge)
-# ============================================================================
 
 mutation MFA_Login_Step1 {
   login(input: {
@@ -596,10 +558,6 @@ mutation MFA_Login_Step2 {
 }
 
 
-# ============================================================================
-# EXAMPLE 6: Authentication Failure (Wrong Password)
-# ============================================================================
-
 mutation Failed_Login {
   login(input: {
     identifier: "bob@acme.com"
@@ -630,10 +588,6 @@ mutation Failed_Login {
 # }
 
 
-# ============================================================================
-# EXAMPLE 7: Rate Limit Exceeded
-# ============================================================================
-
 # After 10 failed attempts...
 
 mutation RateLimited_Login {
@@ -661,10 +615,6 @@ mutation RateLimited_Login {
 # }
 
 
-# ============================================================================
-# EXAMPLE 8: IP Restricted
-# ============================================================================
-
 mutation IPRestricted_Login {
   login(input: {
     identifier: "eve@finance.com"
@@ -690,10 +640,6 @@ mutation IPRestricted_Login {
 #   }
 # }
 
-
-# ============================================================================
-# EXAMPLE 9: Refresh Session
-# ============================================================================
 
 mutation RefreshSession {
   refreshSession(refreshToken: "ref_abc123...") {

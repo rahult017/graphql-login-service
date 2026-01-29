@@ -1,10 +1,3 @@
-#!/usr/bin/env python3
-"""
-Startup Script
-
-Initializes the application with test data and starts the server.
-"""
-
 import asyncio
 import sys
 import logging
